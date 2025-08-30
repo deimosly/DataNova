@@ -3,7 +3,7 @@ DataNova – Gaia Stellar Classification Tool
 
 Welcome, astronomers! DataNova is a Python-based tool for fetching Gaia star samples, training a RandomForest classifier, filtering stellar data, and exporting results for further analysis. This guide will help you set up and run the application.
 
-1. Install Anaconda
+Install Anaconda
 ------------------
 
 1. Download the latest version of Anaconda for your system: 
@@ -12,7 +12,7 @@ Welcome, astronomers! DataNova is a Python-based tool for fetching Gaia star sam
 
    Note: Anaconda provides a stable Python environment with package management and ensures all dependencies work correctly.
 
-2. Install Required Python Packages
+Install Required Python Packages
 ---------------------------------
 
 1. Launch Anaconda Prompt from your system search bar.
@@ -23,7 +23,7 @@ Welcome, astronomers! DataNova is a Python-based tool for fetching Gaia star sam
 3. The script will check for necessary packages (pandas, numpy, matplotlib, scikit-learn, streamlit, astroquery) and install any missing ones.
 4. Wait for all installations to complete. Press Enter when prompted to close the installer console.
 
-3. Launch DataNova
+Launch DataNova
 -----------------
 
 1. Open a new Anaconda Prompt.
@@ -35,7 +35,7 @@ Welcome, astronomers! DataNova is a Python-based tool for fetching Gaia star sam
 
    The interface allows you to fetch Gaia samples, train classifiers, explore HR diagrams, filter stars, and export CSV files for analysis.
 
-4. Finishing Your Session
+Finishing Your Session
 ------------------------
 
 1. Once finished, simply close the browser tab.
