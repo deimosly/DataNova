@@ -1,0 +1,2 @@
+# DataNova
+Automatic star classification.
