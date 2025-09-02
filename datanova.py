@@ -1,4 +1,3 @@
-
 # %% DEPENDENCY CHECK
 import importlib
 import sys
@@ -27,6 +26,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.utils import resample
 import streamlit as st
+import glob
+import os
 
 # Optional Gaia query
 try:
@@ -35,7 +36,32 @@ try:
 except:
     GAIA_AVAILABLE = False
 
-# %% STREAMLIT GUI
+# =========================
+# Helpers for persistence
+# =========================
+def find_latest_sample(folder: Path) -> Path | None:
+    """Return the newest gaia_sample*.csv in folder, or None if none exist."""
+    pattern = str(folder / "gaia_sample*.csv")
+    candidates = glob.glob(pattern)
+    if not candidates:
+        return None
+    # Pick by modification time (newest)
+    newest = max(candidates, key=os.path.getmtime)
+    return Path(newest)
+
+def set_current_csv(path: Path | None):
+    """Persist the current CSV path in session_state."""
+    st.session_state["current_csv_path"] = str(path) if path else None
+    # Increment a dataset version to allow resetting dependent widgets if desired
+    st.session_state["dataset_version"] = st.session_state.get("dataset_version", 0) + 1
+
+def get_current_csv_path() -> Path | None:
+    p = st.session_state.get("current_csv_path")
+    return Path(p) if p else None
+
+# =========================
+# STREAMLIT GUI
+# =========================
 st.title("DataNova: Gaia Stellar Classification")
 st.markdown("""
 Fetch Gaia star samples, train a RandomForest classifier, filter stars, and export CSVs.  
@@ -44,24 +70,42 @@ Fetch Gaia star samples, train a RandomForest classifier, filter stars, and expo
 
 # --- User selects sample size
 sample_size = st.number_input(
-    "Number of stars to fetch/analyze:", 
+    "Number of stars to fetch/analyze:",
     min_value=1000, max_value=100000, value=20000, step=1000
 )
 
 # --- User selects folder to save CSVs
 st.markdown("**Folder to save CSVs (original + filtered):**")
 st.markdown("_Tip: Type/paste a path, default is `./data`._")
-output_folder = Path(st.text_input("Folder path:", value=str(Path.cwd() / "data")))
+default_folder = Path.cwd() / "data"
+output_folder = Path(st.text_input("Folder path:", value=str(st.session_state.get("output_folder", default_folder))))
+
+# Create folder and persist folder path in state
 output_folder.mkdir(parents=True, exist_ok=True)
+if st.session_state.get("output_folder") != str(output_folder):
+    st.session_state["output_folder"] = str(output_folder)
+    # When the folder changes, attempt to auto-pick the latest sample inside it
+    latest = find_latest_sample(output_folder)
+    set_current_csv(latest)
+
 st.write(f"CSV files will be saved to: `{output_folder}`")
 
-# %% STEP 1: FETCH OR LOAD DATA
-SAMPLE_CSV = output_folder / "gaia_sample.csv"
+# On first run (or if none set), try to discover latest sample in folder
+if get_current_csv_path() is None:
+    latest = find_latest_sample(output_folder)
+    if latest is not None:
+        set_current_csv(latest)
+    else:
+        # no file yet -> leave None; we will create/fallback to mock later
+        pass
 
-if GAIA_AVAILABLE and st.button("Fetch Gaia Sample"):
+# %% STEP 1: FETCH OR LOAD DATA
+if GAIA_AVAILABLE and st.button("Fetch Gaia Sample", key="fetch_btn"):
     st.write("Fetching Gaia sample...")
     base_name = "gaia_sample"
     extension = ".csv"
+
+    # Determine next sample index
     sample_num = 0
     while (output_folder / f"{base_name}{sample_num if sample_num > 0 else ''}{extension}").exists():
         sample_num += 1
@@ -86,15 +130,20 @@ if GAIA_AVAILABLE and st.button("Fetch Gaia Sample"):
         df = job.get_results().to_pandas()
         df.to_csv(output_file, index=False)
         st.success(f"Gaia sample fetched and saved as {output_file.name}, rows: {len(df)}")
+
+        # Persist this as the current dataset
+        set_current_csv(output_file)
+
     except Exception as e:
         st.error(f"Gaia query failed: {e}")
-        df = None
 
-# Load CSV if exists
-if SAMPLE_CSV.exists():
-    df = pd.read_csv(SAMPLE_CSV)
-    st.write(f"Loaded CSV `{SAMPLE_CSV.name}`, rows: {len(df)}")
-elif 'df' not in locals():
+# Load current CSV if available
+current_csv = get_current_csv_path()
+df = None
+if current_csv and current_csv.exists():
+    df = pd.read_csv(current_csv)
+    st.write(f"Loaded CSV `{current_csv.name}`, rows: {len(df)}")
+else:
     st.warning("No Gaia data available. Using fallback mock data.")
     df = pd.DataFrame({
         "source_id": [1,2,3,4,5,6,7,8],
@@ -114,12 +163,12 @@ def compute_abs_mag(row):
     plx, plx_err, G = row['parallax'], row['parallax_error'], row['phot_g_mean_mag']
     if pd.isna(plx) or pd.isna(G) or plx <= 0:
         return np.nan
-    if plx / plx_err > 5:
+    if plx_err and plx_err > 0 and plx / plx_err > 5:
         return G + 5 * np.log10(plx / 1000) + 5
     return np.nan
 
 df['abs_mag_g'] = df.apply(compute_abs_mag, axis=1)
-df_clean = df.dropna(subset=['bp_rp','abs_mag_g'])
+df_clean = df.dropna(subset=['bp_rp','abs_mag_g']).copy()
 df_clean['class_label'] = df_clean['best_class_name'].astype('category').cat.codes
 class_mapping = dict(enumerate(df_clean['best_class_name'].astype('category').cat.categories))
 
@@ -128,58 +177,69 @@ st.write(df_clean['best_class_name'].value_counts())
 
 # %% STEP 2b: BALANCE CLASSES
 counts = df_clean['class_label'].value_counts()
-median_count = int(counts.median())
+if len(counts) > 0:
+    median_count = int(counts.median())
+else:
+    median_count = 0
 dfs = []
 for lbl, group in df_clean.groupby('class_label'):
-    if len(group) < median_count:
+    if len(group) < median_count and median_count > 0:
         group_up = resample(group, replace=True, n_samples=median_count, random_state=42)
         dfs.append(group_up)
     else:
         dfs.append(group)
-df_balanced = pd.concat(dfs).sample(frac=1, random_state=42).reset_index(drop=True)
+df_balanced = pd.concat(dfs) if dfs else df_clean
+df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
 st.write(f"Balanced dataset: {len(df_balanced)} stars total")
 
 # %% STEP 3: FEATURES & LABELS
 features = ['bp_rp','abs_mag_g','teff_gspphot']
 X = df_balanced[features].copy()
-y = df_balanced['class_label']
-X['teff_gspphot'] = X['teff_gspphot'].fillna(X['teff_gspphot'].median())
+y = df_balanced['class_label'] if 'class_label' in df_balanced else pd.Series(dtype=int)
+X['teff_gspphot'] = X['teff_gspphot'].fillna(X['teff_gspphot'].median() if not X['teff_gspphot'].dropna().empty else 0)
 
 # %% STEP 4: SAFE TRAINING & GUI
 clf = None
 X_train = X_test = y_train = y_test = None
 trainable = False
 
-counts = y.value_counts()
-valid_classes = counts[counts >= 2].index
-X_valid = X[y.isin(valid_classes)]
-y_valid = y[y.isin(valid_classes)]
+if not y.empty:
+    counts = y.value_counts()
+    valid_classes = counts[counts >= 2].index
+    X_valid = X[y.isin(valid_classes)]
+    y_valid = y[y.isin(valid_classes)]
 
-if len(y_valid) >= 2 and y_valid.nunique() >= 2:
-    trainable = True
-    # Ensure test_size >= number of classes but < total samples
-    n_classes = y_valid.nunique()
-    n_samples = len(y_valid)
-    test_size = max(n_classes, int(0.2 * n_samples))
-    if test_size >= n_samples:
-        test_size = n_samples - 1
-    stratify_param = y_valid if test_size >= n_classes else None
+    if len(y_valid) >= 2 and y_valid.nunique() >= 2:
+        trainable = True
+        n_classes = y_valid.nunique()
+        n_samples = len(y_valid)
+        test_size = max(n_classes, int(0.2 * n_samples))
+        if test_size >= n_samples:
+            test_size = max(1, n_samples - 1)
+        stratify_param = y_valid if test_size >= n_classes else None
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_valid, y_valid, test_size=test_size, stratify=stratify_param, random_state=42
-    )
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_valid, y_valid, test_size=test_size, stratify=stratify_param, random_state=42
+        )
 
-    clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')
-    clf.fit(X_train, y_train)
-    st.success(f"Classifier trained on {len(X_train)} samples, test size {len(X_test)}")
+        clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')
+        clf.fit(X_train, y_train)
+        trained_on = len(X_train)
+        st.success(
+            f"Classifier trained on {trained_on} samples, test size {len(X_test)} "
+            f"(dataset: `{current_csv.name if current_csv else 'mock'}`)"
+        )
+    else:
+        st.warning("Not enough valid data to train a classifier. Preview only available.")
 else:
-    st.warning("Not enough valid data to train a classifier. Preview only available.")
+    st.warning("No labels available — cannot train a classifier.")
 
 # %% STEP 6: EVALUATION (safe)
 if clf is not None:
     y_pred = clf.predict(X_test)
     unique_classes = sorted(set(y_test) | set(y_pred))
-    target_names = [class_mapping[i] for i in unique_classes]
+    # guard in case class_mapping misses a code
+    target_names = [class_mapping.get(i, f"class_{i}") for i in unique_classes]
 
     report_dict = classification_report(y_test, y_pred, target_names=target_names,
                                         zero_division=0, output_dict=True)
@@ -207,10 +267,10 @@ if clf is not None:
     predicted_labels = clf.predict(X)
     for class_code, class_name in class_mapping.items():
         idx = predicted_labels == class_code
-        ax.scatter(df_balanced['bp_rp'][idx], df_balanced['abs_mag_g'][idx],
-                   label=class_name, s=20, alpha=0.7)
+        subset = df_balanced.loc[idx]
+        ax.scatter(subset['bp_rp'], subset['abs_mag_g'], label=class_name, s=20, alpha=0.7)
 else:
-    ax.scatter(df['bp_rp'], df['abs_mag_g'], color='gray', s=20, alpha=0.7)
+    ax.scatter(df['bp_rp'], df['abs_mag_g'], s=20, alpha=0.7)
     ax.set_title("HR Diagram (preview, classifier not trained)")
 
 ax.invert_yaxis()
@@ -221,37 +281,57 @@ st.pyplot(fig)
 
 # %% STEP 8: FILTERING
 st.subheader("Filter stars")
+
+# Use session_state to persist chosen filters across reruns and across dataset changes if you want.
+# When dataset changes (dataset_version increments), reset filter defaults to the dataset range.
+dataset_version = st.session_state.get("dataset_version", 0)
+filters_key_prefix = f"filters_v{dataset_version}_"
+
+available_classes = list(df_clean['best_class_name'].unique()) if not df_clean.empty else []
 star_class = st.selectbox(
     "Select class to filter:",
-    options=[None]+list(df_clean['best_class_name'].unique())
+    options=[None] + available_classes,
+    key=filters_key_prefix + "class"
 )
+
+# Defaults bound to current dataset
+min_default = float(df_clean['abs_mag_g'].min()) if not df_clean.empty else 0.0
+max_default = float(df_clean['abs_mag_g'].max()) if not df_clean.empty else 0.0
+
 min_mag = st.number_input(
     "Minimum absolute magnitude (M_G):",
-    value=float(df_clean['abs_mag_g'].min())
+    value=min_default,
+    key=filters_key_prefix + "min_mag"
 )
 max_mag = st.number_input(
     "Maximum absolute magnitude (M_G):",
-    value=float(df_clean['abs_mag_g'].max())
+    value=max_default,
+    key=filters_key_prefix + "max_mag"
 )
 
-def filter_stars_gui(df, star_class=None, min_mag=None, max_mag=None):
-    filtered = df.copy()
+def filter_stars_gui(df_, star_class=None, min_mag=None, max_mag=None):
+    filtered = df_.copy()
     if star_class:
         filtered = filtered[filtered['best_class_name'] == star_class]
     if min_mag is not None:
         filtered = filtered[filtered['abs_mag_g'] >= min_mag]
     if max_mag is not None:
         filtered = filtered[filtered['abs_mag_g'] <= max_mag]
-    return filtered[['source_id','best_class_name','bp_rp','abs_mag_g','teff_gspphot']]
+    cols = ['source_id','best_class_name','bp_rp','abs_mag_g','teff_gspphot']
+    return filtered[cols] if all(c in filtered.columns for c in cols) else filtered
 
 filtered_df = filter_stars_gui(df_clean, star_class, min_mag, max_mag)
 st.write(f"Filtered stars: {len(filtered_df)}")
 st.dataframe(filtered_df.head(20))
 
 # %% STEP 9: EXPORT
-if st.button("Export CSVs"):
-    original_csv_path = output_folder / "gaia_original.csv"
-    filtered_csv_path = output_folder / "gaia_filtered.csv"
+if st.button("Export CSVs", key="export_btn"):
+    # Name exports after the current sample stem to avoid clobbering
+    stem = (current_csv.stem if current_csv else "gaia_mock")
+    original_csv_path = output_folder / f"{stem}_original.csv"
+    filtered_csv_path = output_folder / f"{stem}_filtered.csv"
     df_clean.to_csv(original_csv_path, index=False)
     filtered_df.to_csv(filtered_csv_path, index=False)
-    st.success(f"CSVs exported:\n- Original: {original_csv_path}\n- Filtered: {filtered_csv_path}")
+    st.success(
+        f"CSVs exported:\n- Original: {original_csv_path}\n- Filtered: {filtered_csv_path}"
+    )
