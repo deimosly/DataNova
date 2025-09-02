@@ -6,8 +6,9 @@ Welcome, astronomers! DataNova is a Python-based tool for fetching Gaia star sam
 Install Anaconda
 ------------------
 
-1. Download the latest version of Anaconda for your system: 
+1. Download the latest version of Anaconda and Python for your system: 
    https://www.anaconda.com/download/success
+   https://www.python.org/downloads/
 2. Follow the installer instructions to complete the installation.
 
    Note: Anaconda provides a stable Python environment with package management and ensures all dependencies work correctly.
@@ -27,7 +28,7 @@ Launch DataNova
 -----------------
 
 1. Open a new Anaconda Prompt.
-2. Run DataNova using:
+2. Run DataNova using (WITHOUT ") :
 
    streamlit run "C:\path\to\datanova.py"
 
@@ -44,4 +45,4 @@ Finishing Your Session
 Note:
 -----
 
-DataNova is designed for professional or research-level use. Ensure you have a stable internet connection when fetching Gaia data. Large samples provide more accurate classification results.
+DataNova is designed for professional or research-level use. Ensure you have a stable internet connection when fetching Gaia data. Large samples provide more accurate classification results. Current limit is 100000 stars per sample.
