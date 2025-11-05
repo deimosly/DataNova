@@ -35,4 +35,4 @@ Clone the repository and install required dependencies:
 ```bash
 git clone https://github.com/<yourusername>/DataNova.git
 cd DataNova
-pip install -r requirements.txt
+pip install -r install_requirements.txt
