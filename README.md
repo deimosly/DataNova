@@ -23,10 +23,6 @@ Built around a Streamlit interface, DataNova enables researchers and students to
 
 The project is designed with **scientific transparency, reproducibility, and physical interpretability** as first-class goals.
 
-This repository accompanies the research work:
-
-> *Locmelis-Lunovs, E. (2025). DataNova: A Reproducible Pipeline for Correlation-Based Stellar Classification.*
-
 ---
 
 ## Key Capabilities
