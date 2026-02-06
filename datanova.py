@@ -1,7 +1,7 @@
 # datanova.py
 """DataNova: Gaia DR3 stellar classification (Streamlit)
 
-Publish-ready Streamlit app that can:
+Streamlit app that can:
 - Fetch Gaia DR3 samples (vari_classifier_result + gaia_source + astrophysical_parameters)
 - Load local CSVs
 - Optionally enrich with gaiadr3.vari_summary and/or SOS period tables (rrlyrae/cepheid/lpv)
@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend suitable for Streamlit
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
