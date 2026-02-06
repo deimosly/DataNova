@@ -162,12 +162,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----
-
-## Citation
-
-If you use DataNova in academic work, please cite:
-
-```
-Locmelis-Lunovs, E. (2025). DataNova: A Reproducible Pipeline for Correlation-Based Stellar Classification. Zenodo. https://doi.org/10.5281/zenodo.17537782
-```
